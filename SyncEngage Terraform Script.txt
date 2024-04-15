@@ -1,0 +1,102 @@
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "2.91.0"
+    }
+  }
+}
+
+# Define Azure provider
+provider "azurerm" {
+  features {}
+}
+
+
+# Set Up Resource Group
+resource "azurerm_resource_group" "syncengage_resorces" {
+  name     = "syncengage_resources"
+  location = "East US"
+}
+
+# Create Virtual Network
+resource "azurerm_virtual_network" "syncengage_network" {
+  name                = "syncengage_network"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.syncengage_resorces.location
+  resource_group_name = azurerm_resource_group.syncengage_resorces.name
+}
+
+#Define Subnets
+resource "azurerm_subnet" "syncengage_subnet" {
+  name                 = "syncengage_subnet"
+  resource_group_name  = azurerm_resource_group.syncengage_resorces.name
+  virtual_network_name = azurerm_virtual_network.syncengage_network.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+#Configure Network Security Group
+resource "azurerm_network_security_group" "syncengage_nsg" {
+  name                = "syncengage_nsg"
+  location            = azurerm_resource_group.syncengage_resorces.location
+  resource_group_name = azurerm_resource_group.syncengage_resorces.name
+
+  security_rule {
+    name                       = "Allow-HTTP"
+    priority                   = 1001
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+}
+
+#Define Network Interface
+resource "azurerm_network_interface" "syncengage_nic" {
+  name                      = "syncengage_nic"
+  location                  = azurerm_resource_group.syncengage_resorces.location
+  resource_group_name       = azurerm_resource_group.syncengage_resorces.name
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.syncengage_subnet.id
+    private_ip_address_allocation = "Dynamic"
+  }
+}
+
+#Create SyncEngage Server Virtual Machine
+resource "azurerm_virtual_machine" "syncengage_vm" {
+  name                  = "syncengage_vm"
+  location              = azurerm_resource_group.syncengage_resorces.location
+  resource_group_name   = azurerm_resource_group.syncengage_resorces.name
+  network_interface_id = azurerm_network_interface.syncengage_nic.id
+  vm_size               = "Standard_DS1_v2"
+
+  storage_os_disk {
+    name              = "syncengage_osdisk"
+    caching           = "ReadWrite"
+    create_option     = "FromImage"
+    managed_disk_type = "Premium_LRS"
+  }
+
+  storage_image_reference {
+    publisher = "MicrosoftWindowsDesktop"
+    offer     = "Windows-11"
+    sku       = "Windows-11-Latest"
+    version   = "latest"
+  }
+
+  os_profile {
+    computer_name  = "syncengage_vm"
+    admin_username = "adminuser"
+    admin_password = "YourPassword1234!"
+  }
+
+  os_profile_windows_config {
+    enable_automatic_upgrades = true
+    provision_vm_agent        = true
+  }
+}
